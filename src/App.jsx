@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const clampShift = (value) => {
   const asNumber = Number(value);
   if (Number.isNaN(asNumber)) return 0;
-  return Math.min(25, Math.max(0, asNumber));
+  return Math.min(100, Math.max(0, asNumber));
 };
 
 const createStep = (id, type = "caesar") => ({
@@ -112,8 +112,9 @@ const TRANSLATIONS = {
     },
     status: {
       idle: "",
+      noInput: "Nusxa olish uchun kirish matni yo'q.",
       noOutput: "Nusxa olish uchun natija yo'q.",
-      copied: "Natija nusxalandi.",
+      copied: "Matn nusxalandi.",
       denied: "Clipboard ruxsati topilmadi."
     },
     library: {
@@ -206,8 +207,9 @@ const TRANSLATIONS = {
     },
     status: {
       idle: "",
+      noInput: "Нет входного текста для копирования.",
       noOutput: "Нет результата для копирования.",
-      copied: "Результат скопирован.",
+      copied: "Текст скопирован.",
       denied: "Нет доступа к буферу обмена."
     },
     library: {
@@ -300,8 +302,9 @@ const TRANSLATIONS = {
     },
     status: {
       idle: "",
+      noInput: "No input text to copy.",
       noOutput: "No output to copy.",
-      copied: "Output copied.",
+      copied: "Text copied.",
       denied: "Clipboard permission is unavailable."
     },
     library: {
@@ -549,13 +552,24 @@ export default function App() {
               <button
                 className="btn btn-primary"
                 type="button"
-                onClick={() => copyText(inputText, setCopyInputStatus, "noOutput")}
+                onClick={() => copyText(inputText, setCopyInputStatus, "noInput")}
               >
                 {t.buttons.copy}
               </button>
               <span className="status">{t.status[copyInputStatus]}</span>
             </div>
           </article>
+
+          <div className="insert-slot panel-insert-slot">
+            <button
+              className="insert-btn"
+              type="button"
+              aria-label={t.buttons.addOperation}
+              onClick={() => openLibraryAt(0)}
+            >
+              +
+            </button>
+          </div>
 
           <article className="panel pipeline-panel">
             <div className="panel-head">
@@ -566,16 +580,6 @@ export default function App() {
             <div className="pipeline-hint">{t.pipelineHint}</div>
 
             <div className="step-list">
-              <div className="insert-slot">
-                <button
-                  className="insert-btn"
-                  type="button"
-                  aria-label={t.buttons.addOperation}
-                  onClick={() => openLibraryAt(0)}
-                >
-                  +
-                </button>
-              </div>
               {steps.map((step, index) => (
                 <div key={step.id}>
                   <section className="step-card">
@@ -612,7 +616,7 @@ export default function App() {
                         id={`shift-range-${step.id}`}
                         type="range"
                         min="0"
-                        max="25"
+                        max="100"
                         value={step.shift}
                         onChange={(event) =>
                           updateStep(step.id, { shift: clampShift(event.target.value) })
@@ -622,7 +626,7 @@ export default function App() {
                         className="control mono"
                         type="number"
                         min="0"
-                        max="25"
+                        max="100"
                         value={step.shift}
                         onChange={(event) =>
                           updateStep(step.id, { shift: clampShift(event.target.value) })
@@ -669,29 +673,11 @@ export default function App() {
                       </button>
                     </div>
                   </section>
-
-                  <div className="insert-slot">
-                    <button
-                      className="insert-btn"
-                      type="button"
-                      aria-label={t.buttons.addOperation}
-                      onClick={() => openLibraryAt(index + 1)}
-                    >
-                      +
-                    </button>
-                  </div>
                 </div>
               ))}
             </div>
 
             <div className="actions">
-              <button
-                className="btn btn-soft"
-                type="button"
-                onClick={() => openLibraryAt(steps.length)}
-              >
-                {t.buttons.addOperation}
-              </button>
               <button className="btn btn-soft" type="button" onClick={resetPipeline}>
                 {t.buttons.resetPipeline}
               </button>
@@ -700,6 +686,17 @@ export default function App() {
               </button>
             </div>
           </article>
+
+          <div className="insert-slot panel-insert-slot">
+            <button
+              className="insert-btn"
+              type="button"
+              aria-label={t.buttons.addOperation}
+              onClick={() => openLibraryAt(steps.length)}
+            >
+              +
+            </button>
+          </div>
 
           <article className="panel output-panel">
             <div className="panel-head">
