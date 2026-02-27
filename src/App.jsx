@@ -1,26 +1,212 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const MAX_SHIFT = 100;
+const MIN_RAILS = 2;
+const MAX_RAILS = 10;
+
+const ENABLED_OPERATIONS = new Set([
+  "caesar",
+  "reverse",
+  "replace",
+  "case-transform",
+  "rot13",
+  "a1z26",
+  "vigenere",
+  "rail-fence"
+]);
+
+const MODE_OPERATIONS = new Set(["caesar", "a1z26", "vigenere", "rail-fence"]);
+
 const clampShift = (value) => {
   const asNumber = Number(value);
   if (Number.isNaN(asNumber)) return 0;
-  return Math.min(100, Math.max(0, asNumber));
+  return Math.min(MAX_SHIFT, Math.max(0, asNumber));
+};
+
+const clampRails = (value) => {
+  const asNumber = Number(value);
+  if (Number.isNaN(asNumber)) return 3;
+  return Math.min(MAX_RAILS, Math.max(MIN_RAILS, asNumber));
+};
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const shiftLetter = (char, shift, preserveCase = true) => {
+  const lower = char.toLowerCase();
+  const code = lower.charCodeAt(0);
+  if (code < 97 || code > 122) return char;
+
+  const shifted = String.fromCharCode(((code - 97 + shift) % 26) + 97);
+  if (!preserveCase) return shifted;
+
+  return char >= "A" && char <= "Z" ? shifted.toUpperCase() : shifted;
+};
+
+const caesarCipher = (text, shift, preserveCase = true) =>
+  text
+    .split("")
+    .map((char) => shiftLetter(char, shift, preserveCase))
+    .join("");
+
+const reverseText = (text) => text.split("").reverse().join("");
+
+const replaceText = (text, fromText, toText, matchCase) => {
+  if (!fromText) return text;
+  const pattern = new RegExp(escapeRegex(fromText), matchCase ? "g" : "gi");
+  return text.replace(pattern, toText ?? "");
+};
+
+const toTitleCase = (text) =>
+  text.replace(/\b(\p{L})(\p{L}*)/gu, (_, first, rest) =>
+    `${first.toUpperCase()}${rest.toLowerCase()}`
+  );
+
+const toggleCase = (text) =>
+  text
+    .split("")
+    .map((char) => {
+      const lower = char.toLowerCase();
+      const upper = char.toUpperCase();
+      if (lower === upper) return char;
+      return char === lower ? upper : lower;
+    })
+    .join("");
+
+const transformCase = (text, caseMode) => {
+  switch (caseMode) {
+    case "upper":
+      return text.toUpperCase();
+    case "lower":
+      return text.toLowerCase();
+    case "title":
+      return toTitleCase(text);
+    case "toggle":
+      return toggleCase(text);
+    default:
+      return text;
+  }
+};
+
+const a1z26Encode = (text) =>
+  text
+    .split("")
+    .map((char) => {
+      const lower = char.toLowerCase();
+      const code = lower.charCodeAt(0);
+      if (code < 97 || code > 122) return char;
+      return String(code - 96);
+    })
+    .join(" ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+const a1z26Decode = (text) =>
+  text.replace(/\b([1-9]|1[0-9]|2[0-6])\b/g, (match) => {
+    const value = Number(match);
+    return String.fromCharCode(96 + value);
+  });
+
+const getVigenereKey = (key) =>
+  (key ?? "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+    .split("")
+    .map((char) => char.charCodeAt(0) - 97);
+
+const vigenereCipher = (text, key, mode, preserveCase) => {
+  const keyOffsets = getVigenereKey(key);
+  if (!keyOffsets.length) return text;
+
+  let keyIndex = 0;
+  return text
+    .split("")
+    .map((char) => {
+      const lower = char.toLowerCase();
+      const code = lower.charCodeAt(0);
+      if (code < 97 || code > 122) return char;
+
+      const offset = keyOffsets[keyIndex % keyOffsets.length];
+      keyIndex += 1;
+      const shift = mode === "decode" ? (26 - offset) % 26 : offset;
+      return shiftLetter(char, shift, preserveCase);
+    })
+    .join("");
+};
+
+const railFenceEncode = (text, rails) => {
+  if (rails <= 1 || text.length <= 1) return text;
+
+  const fence = Array.from({ length: rails }, () => []);
+  let row = 0;
+  let direction = 1;
+
+  for (const char of text) {
+    fence[row].push(char);
+    if (row === 0) direction = 1;
+    if (row === rails - 1) direction = -1;
+    row += direction;
+  }
+
+  return fence.map((line) => line.join("")).join("");
+};
+
+const railFenceDecode = (cipher, rails) => {
+  if (rails <= 1 || cipher.length <= 1) return cipher;
+
+  const pattern = [];
+  let row = 0;
+  let direction = 1;
+  for (let i = 0; i < cipher.length; i += 1) {
+    pattern.push(row);
+    if (row === 0) direction = 1;
+    if (row === rails - 1) direction = -1;
+    row += direction;
+  }
+
+  const counts = Array(rails).fill(0);
+  for (const rail of pattern) counts[rail] += 1;
+
+  const railsData = Array.from({ length: rails }, () => []);
+  let cursor = 0;
+  for (let rail = 0; rail < rails; rail += 1) {
+    railsData[rail] = cipher.slice(cursor, cursor + counts[rail]).split("");
+    cursor += counts[rail];
+  }
+
+  const railReadCursor = Array(rails).fill(0);
+  return pattern
+    .map((rail) => {
+      const char = railsData[rail][railReadCursor[rail]];
+      railReadCursor[rail] += 1;
+      return char;
+    })
+    .join("");
+};
+
+const DEFAULT_STEP_BY_TYPE = {
+  caesar: () => ({ mode: "encode", shift: 3, preserveCase: true }),
+  reverse: () => ({}),
+  replace: () => ({ fromText: "", toText: "", matchCase: true }),
+  "case-transform": () => ({ caseMode: "upper" }),
+  rot13: () => ({}),
+  a1z26: () => ({ mode: "encode" }),
+  vigenere: () => ({ mode: "encode", key: "KEY", preserveCase: true }),
+  "rail-fence": () => ({ mode: "encode", rails: 3 })
 };
 
 const createStep = (id, type = "caesar") => ({
   id,
   type,
-  mode: "encode",
-  shift: 3,
-  preserveCase: true
+  ...(DEFAULT_STEP_BY_TYPE[type] ? DEFAULT_STEP_BY_TYPE[type]() : DEFAULT_STEP_BY_TYPE.caesar())
 });
 
 const operationCatalog = [
   {
     groupId: "transform",
     items: [
-      { id: "replace" },
-      { id: "reverse" },
-      { id: "case-transform" },
+      { id: "replace", available: true },
+      { id: "reverse", available: true },
+      { id: "case-transform", available: true },
       { id: "numeral-system" },
       { id: "bitwise" }
     ]
@@ -38,12 +224,12 @@ const operationCatalog = [
       { id: "enigma" },
       { id: "caesar", available: true },
       { id: "affine" },
-      { id: "rot13" },
-      { id: "a1z26" },
-      { id: "vigenere" },
+      { id: "rot13", available: true },
+      { id: "a1z26", available: true },
+      { id: "vigenere", available: true },
       { id: "bacon" },
       { id: "substitution" },
-      { id: "rail-fence" }
+      { id: "rail-fence", available: true }
     ]
   },
   {
@@ -76,7 +262,7 @@ const TRANSLATIONS = {
     eyebrow: "Shifr maydoni",
     heroTitle: "Sezor Cipher Studio",
     heroSubtitle:
-      "Cryptii uslubidagi zanjirli ish jarayoni: Sezar shifrining bir nechta bosqichini ketma-ket qo'llang va yakuniy natijani real vaqtda ko'ring.",
+      "Cryptii uslubidagi zanjirli ish jarayoni: bir nechta operation bosqichini ketma-ket qo'llang va natijani real vaqtda oling.",
     labels: {
       language: "Til",
       input: "Kirish matni",
@@ -84,11 +270,20 @@ const TRANSLATIONS = {
       output: "Natija",
       mode: "Rejim",
       shift: "Siljitish",
-      preserveCase: "Katta-kichik harflarni saqlash"
+      preserveCase: "Katta-kichik harflarni saqlash",
+      fromText: "Nimadan",
+      toText: "Nimaga",
+      matchCase: "Registrni hisobga olish",
+      caseTransform: "Case transform",
+      key: "Kalit",
+      rails: "Relslar"
     },
     placeholders: {
       input: "Masalan: Salom Dunyo",
-      output: "Natija shu yerda chiqadi"
+      output: "Natija shu yerda chiqadi",
+      fromText: "Masalan: salom",
+      toText: "Masalan: hello",
+      key: "Masalan: KEY"
     },
     units: {
       chars: "belgi",
@@ -100,7 +295,6 @@ const TRANSLATIONS = {
       up: "Yuqoriga",
       down: "Pastga",
       remove: "O'chirish",
-      addOperation: "+ Operatsiya qo'shish",
       resetPipeline: "Zanjirni tiklash",
       clearAll: "Hammasini tozalash",
       copy: "Nusxa olish",
@@ -109,6 +303,12 @@ const TRANSLATIONS = {
     modes: {
       encode: "Shifrlash",
       decode: "Deshifrlash"
+    },
+    caseModes: {
+      upper: "KATTA",
+      lower: "kichik",
+      title: "Sarlavha",
+      toggle: "Almashtirish"
     },
     status: {
       idle: "",
@@ -119,8 +319,7 @@ const TRANSLATIONS = {
     },
     library: {
       title: "Operatsiyalar kutubxonasi",
-      noteBefore: "Cryptii uslubida: hozir faol modul faqat ",
-      noteAfter: ". Qolganlari keyingi bosqichda ulanadi.",
+      note: "Faol ishlaydigan modullar sariq rang bilan ajratilgan.",
       ariaLabel: "Operatsiyalar kutubxonasi"
     },
     categories: {
@@ -161,8 +360,8 @@ const TRANSLATIONS = {
     },
     languages: {
       uz: "O'zbekcha",
-      ru: "Ruscha",
-      en: "Inglizcha"
+      ru: "Русский",
+      en: "English"
     }
   },
   ru: {
@@ -171,7 +370,7 @@ const TRANSLATIONS = {
     eyebrow: "Шифровальная зона",
     heroTitle: "Sezor Cipher Studio",
     heroSubtitle:
-      "Цепочка преобразований в стиле Cryptii: применяйте несколько шагов шифра Цезаря подряд и сразу получайте финальный результат.",
+      "Цепочка преобразований в стиле Cryptii: применяйте несколько операций подряд и сразу получайте результат.",
     labels: {
       language: "Язык",
       input: "Входной текст",
@@ -179,11 +378,20 @@ const TRANSLATIONS = {
       output: "Результат",
       mode: "Режим",
       shift: "Сдвиг",
-      preserveCase: "Сохранять регистр символов"
+      preserveCase: "Сохранять регистр символов",
+      fromText: "Что заменить",
+      toText: "На что",
+      matchCase: "Учитывать регистр",
+      caseTransform: "Преобразование регистра",
+      key: "Ключ",
+      rails: "Рельсы"
     },
     placeholders: {
       input: "Например: Привет Мир",
-      output: "Здесь появится результат"
+      output: "Здесь появится результат",
+      fromText: "Например: привет",
+      toText: "Например: hello",
+      key: "Например: KEY"
     },
     units: {
       chars: "символов",
@@ -195,7 +403,6 @@ const TRANSLATIONS = {
       up: "Вверх",
       down: "Вниз",
       remove: "Удалить",
-      addOperation: "+ Добавить операцию",
       resetPipeline: "Сбросить цепочку",
       clearAll: "Очистить все",
       copy: "Копировать",
@@ -204,6 +411,12 @@ const TRANSLATIONS = {
     modes: {
       encode: "Шифровать",
       decode: "Расшифровать"
+    },
+    caseModes: {
+      upper: "ВЕРХНИЙ",
+      lower: "нижний",
+      title: "С заглавной",
+      toggle: "Инверсия"
     },
     status: {
       idle: "",
@@ -214,8 +427,7 @@ const TRANSLATIONS = {
     },
     library: {
       title: "Библиотека операций",
-      noteBefore: "В стиле Cryptii сейчас активен только модуль ",
-      noteAfter: ". Остальные модули добавим на следующем этапе.",
+      note: "Рабочие модули выделены желтым цветом.",
       ariaLabel: "Библиотека операций"
     },
     categories: {
@@ -255,9 +467,9 @@ const TRANSLATIONS = {
       hmac: "HMAC"
     },
     languages: {
-      uz: "Узбекский",
+      uz: "O'zbekcha",
       ru: "Русский",
-      en: "Английский"
+      en: "English"
     }
   },
   en: {
@@ -266,7 +478,7 @@ const TRANSLATIONS = {
     eyebrow: "Cipher workspace",
     heroTitle: "Sezor Cipher Studio",
     heroSubtitle:
-      "Cryptii-style pipe workflow: chain multiple Caesar steps and see the final output in real time.",
+      "Cryptii-style workflow: chain multiple text operations and get output in real time.",
     labels: {
       language: "Language",
       input: "Input text",
@@ -274,11 +486,20 @@ const TRANSLATIONS = {
       output: "Output",
       mode: "Mode",
       shift: "Shift",
-      preserveCase: "Preserve letter case"
+      preserveCase: "Preserve letter case",
+      fromText: "Replace from",
+      toText: "Replace to",
+      matchCase: "Match case",
+      caseTransform: "Case transform",
+      key: "Key",
+      rails: "Rails"
     },
     placeholders: {
       input: "Example: Hello World",
-      output: "Output appears here"
+      output: "Output appears here",
+      fromText: "Example: hello",
+      toText: "Example: hi",
+      key: "Example: KEY"
     },
     units: {
       chars: "chars",
@@ -290,15 +511,20 @@ const TRANSLATIONS = {
       up: "Move up",
       down: "Move down",
       remove: "Remove",
-      addOperation: "+ Add operation",
       resetPipeline: "Reset pipeline",
       clearAll: "Clear all",
-      copy: "Copy output",
+      copy: "Copy",
       close: "Close"
     },
     modes: {
       encode: "Encode",
       decode: "Decode"
+    },
+    caseModes: {
+      upper: "UPPER",
+      lower: "lower",
+      title: "Title",
+      toggle: "Toggle"
     },
     status: {
       idle: "",
@@ -309,8 +535,7 @@ const TRANSLATIONS = {
     },
     library: {
       title: "Operation library",
-      noteBefore: "In Cryptii style, the only active module right now is ",
-      noteAfter: ". Other modules will be added in the next phase.",
+      note: "Working modules are highlighted in yellow.",
       ariaLabel: "Operation library"
     },
     categories: {
@@ -350,40 +575,47 @@ const TRANSLATIONS = {
       hmac: "HMAC"
     },
     languages: {
-      uz: "Uzbek",
-      ru: "Russian",
+      uz: "O'zbekcha",
+      ru: "Русский",
       en: "English"
     }
   }
 };
 
-const shiftLetter = (char, shift, preserveCase) => {
-  const lower = char.toLowerCase();
-  const code = lower.charCodeAt(0);
-  if (code < 97 || code > 122) return char;
-
-  const shifted = String.fromCharCode(((code - 97 + shift) % 26) + 97);
-  if (!preserveCase) return shifted;
-
-  return char >= "A" && char <= "Z" ? shifted.toUpperCase() : shifted;
-};
-
-const caesarCipher = (text, shift, preserveCase) =>
-  text
-    .split("")
-    .map((char) => shiftLetter(char, shift, preserveCase))
-    .join("");
-
 const applyStep = (text, step) => {
-  if (step.type !== "caesar") return text;
+  switch (step.type) {
+    case "caesar": {
+      const normalizedShift = ((step.shift % 26) + 26) % 26;
+      const effectiveShift = step.mode === "encode" ? normalizedShift : (26 - normalizedShift) % 26;
+      return caesarCipher(text, effectiveShift, step.preserveCase);
+    }
 
-  const normalizedShift = ((step.shift % 26) + 26) % 26;
-  const effectiveShift =
-    step.mode === "encode"
-      ? normalizedShift
-      : (26 - normalizedShift) % 26;
+    case "reverse":
+      return reverseText(text);
 
-  return caesarCipher(text, effectiveShift, step.preserveCase);
+    case "replace":
+      return replaceText(text, step.fromText, step.toText, step.matchCase);
+
+    case "case-transform":
+      return transformCase(text, step.caseMode);
+
+    case "rot13":
+      return caesarCipher(text, 13, true);
+
+    case "a1z26":
+      return step.mode === "decode" ? a1z26Decode(text) : a1z26Encode(text);
+
+    case "vigenere":
+      return vigenereCipher(text, step.key, step.mode, step.preserveCase);
+
+    case "rail-fence":
+      return step.mode === "decode"
+        ? railFenceDecode(text, clampRails(step.rails))
+        : railFenceEncode(text, clampRails(step.rails));
+
+    default:
+      return text;
+  }
 };
 
 export default function App() {
@@ -395,7 +627,8 @@ export default function App() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState(0);
   const nextId = useRef(2);
-  const t = TRANSLATIONS[language];
+
+  const t = TRANSLATIONS[language] ?? TRANSLATIONS.uz;
 
   useEffect(() => {
     document.documentElement.lang = t.htmlLang;
@@ -404,6 +637,7 @@ export default function App() {
 
   const operationLabel = (operationId) => t.operations[operationId] ?? operationId;
   const countText = (value, unit) => `${value} ${unit}`;
+  const hasMode = (type) => MODE_OPERATIONS.has(type);
 
   const outputText = useMemo(
     () => steps.reduce((transformed, step) => applyStep(transformed, step), inputText),
@@ -432,7 +666,7 @@ export default function App() {
   };
 
   const addOperation = (operationId) => {
-    if (operationId !== "caesar") return;
+    if (!ENABLED_OPERATIONS.has(operationId)) return;
 
     const id = nextId.current;
     nextId.current += 1;
@@ -504,6 +738,169 @@ export default function App() {
     }
   };
 
+  const renderStepControls = (step) => {
+    switch (step.type) {
+      case "caesar":
+        return (
+          <>
+            <div className="field-group compact">
+              <div className="label-row">
+                <label htmlFor={`shift-range-${step.id}`}>{t.labels.shift}</label>
+                <span className="mono">{step.shift}</span>
+              </div>
+              <input
+                id={`shift-range-${step.id}`}
+                type="range"
+                min="0"
+                max={String(MAX_SHIFT)}
+                value={step.shift}
+                onChange={(event) =>
+                  updateStep(step.id, { shift: clampShift(event.target.value) })
+                }
+              />
+              <input
+                className="control mono"
+                type="number"
+                min="0"
+                max={String(MAX_SHIFT)}
+                value={step.shift}
+                onChange={(event) =>
+                  updateStep(step.id, { shift: clampShift(event.target.value) })
+                }
+              />
+            </div>
+
+            <div className="field-group compact">
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(step.preserveCase)}
+                  onChange={(event) =>
+                    updateStep(step.id, { preserveCase: event.target.checked })
+                  }
+                />
+                <span>{t.labels.preserveCase}</span>
+              </label>
+            </div>
+          </>
+        );
+
+      case "replace":
+        return (
+          <>
+            <div className="field-group compact">
+              <label htmlFor={`from-${step.id}`}>{t.labels.fromText}</label>
+              <input
+                id={`from-${step.id}`}
+                className="control"
+                type="text"
+                value={step.fromText}
+                placeholder={t.placeholders.fromText}
+                onChange={(event) => updateStep(step.id, { fromText: event.target.value })}
+              />
+            </div>
+            <div className="field-group compact">
+              <label htmlFor={`to-${step.id}`}>{t.labels.toText}</label>
+              <input
+                id={`to-${step.id}`}
+                className="control"
+                type="text"
+                value={step.toText}
+                placeholder={t.placeholders.toText}
+                onChange={(event) => updateStep(step.id, { toText: event.target.value })}
+              />
+            </div>
+            <div className="field-group compact">
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(step.matchCase)}
+                  onChange={(event) => updateStep(step.id, { matchCase: event.target.checked })}
+                />
+                <span>{t.labels.matchCase}</span>
+              </label>
+            </div>
+          </>
+        );
+
+      case "case-transform":
+        return (
+          <div className="field-group compact">
+            <label htmlFor={`case-mode-${step.id}`}>{t.labels.caseTransform}</label>
+            <select
+              id={`case-mode-${step.id}`}
+              className="control"
+              value={step.caseMode}
+              onChange={(event) => updateStep(step.id, { caseMode: event.target.value })}
+            >
+              <option value="upper">{t.caseModes.upper}</option>
+              <option value="lower">{t.caseModes.lower}</option>
+              <option value="title">{t.caseModes.title}</option>
+              <option value="toggle">{t.caseModes.toggle}</option>
+            </select>
+          </div>
+        );
+
+      case "vigenere":
+        return (
+          <>
+            <div className="field-group compact">
+              <label htmlFor={`key-${step.id}`}>{t.labels.key}</label>
+              <input
+                id={`key-${step.id}`}
+                className="control mono"
+                type="text"
+                value={step.key}
+                placeholder={t.placeholders.key}
+                onChange={(event) => updateStep(step.id, { key: event.target.value })}
+              />
+            </div>
+            <div className="field-group compact">
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(step.preserveCase)}
+                  onChange={(event) =>
+                    updateStep(step.id, { preserveCase: event.target.checked })
+                  }
+                />
+                <span>{t.labels.preserveCase}</span>
+              </label>
+            </div>
+          </>
+        );
+
+      case "rail-fence":
+        return (
+          <div className="field-group compact">
+            <div className="label-row">
+              <label htmlFor={`rails-${step.id}`}>{t.labels.rails}</label>
+              <span className="mono">{step.rails}</span>
+            </div>
+            <input
+              id={`rails-${step.id}`}
+              type="range"
+              min={String(MIN_RAILS)}
+              max={String(MAX_RAILS)}
+              value={step.rails}
+              onChange={(event) => updateStep(step.id, { rails: clampRails(event.target.value) })}
+            />
+            <input
+              className="control mono"
+              type="number"
+              min={String(MIN_RAILS)}
+              max={String(MAX_RAILS)}
+              value={step.rails}
+              onChange={(event) => updateStep(step.id, { rails: clampRails(event.target.value) })}
+            />
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <>
       <div className="background-glow background-glow-a" />
@@ -564,7 +961,7 @@ export default function App() {
             <button
               className="insert-btn"
               type="button"
-              aria-label={t.buttons.addOperation}
+              aria-label={t.operations.caesar}
               onClick={() => openLibraryAt(0)}
             >
               +
@@ -592,60 +989,24 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div className="field-group compact">
-                      <label htmlFor={`mode-${step.id}`}>{t.labels.mode}</label>
-                      <select
-                        id={`mode-${step.id}`}
-                        className="control"
-                        value={step.mode}
-                        onChange={(event) =>
-                          updateStep(step.id, { mode: event.target.value })
-                        }
-                      >
-                        <option value="encode">{t.modes.encode}</option>
-                        <option value="decode">{t.modes.decode}</option>
-                      </select>
-                    </div>
-
-                    <div className="field-group compact">
-                      <div className="label-row">
-                        <label htmlFor={`shift-range-${step.id}`}>{t.labels.shift}</label>
-                        <span className="mono">{step.shift}</span>
-                      </div>
-                      <input
-                        id={`shift-range-${step.id}`}
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={step.shift}
-                        onChange={(event) =>
-                          updateStep(step.id, { shift: clampShift(event.target.value) })
-                        }
-                      />
-                      <input
-                        className="control mono"
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={step.shift}
-                        onChange={(event) =>
-                          updateStep(step.id, { shift: clampShift(event.target.value) })
-                        }
-                      />
-                    </div>
-
-                    <div className="field-group compact">
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={step.preserveCase}
+                    {hasMode(step.type) ? (
+                      <div className="field-group compact">
+                        <label htmlFor={`mode-${step.id}`}>{t.labels.mode}</label>
+                        <select
+                          id={`mode-${step.id}`}
+                          className="control"
+                          value={step.mode}
                           onChange={(event) =>
-                            updateStep(step.id, { preserveCase: event.target.checked })
+                            updateStep(step.id, { mode: event.target.value })
                           }
-                        />
-                        <span>{t.labels.preserveCase}</span>
-                      </label>
-                    </div>
+                        >
+                          <option value="encode">{t.modes.encode}</option>
+                          <option value="decode">{t.modes.decode}</option>
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {renderStepControls(step)}
 
                     <div className="step-actions">
                       <button
@@ -691,7 +1052,7 @@ export default function App() {
             <button
               className="insert-btn"
               type="button"
-              aria-label={t.buttons.addOperation}
+              aria-label={t.operations.caesar}
               onClick={() => openLibraryAt(steps.length)}
             >
               +
@@ -747,11 +1108,7 @@ export default function App() {
               </button>
             </div>
 
-            <p className="library-note">
-              {t.library.noteBefore}
-              <strong>{operationLabel("caesar")}</strong>
-              {t.library.noteAfter}
-            </p>
+            <p className="library-note">{t.library.note}</p>
 
             <div className="library-groups">
               {operationCatalog.map((category) => (
