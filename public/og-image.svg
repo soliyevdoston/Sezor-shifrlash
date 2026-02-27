@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f1f38"/>
+      <stop offset="1" stop-color="#1a365f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#09abc9"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="70" y="90" width="1060" height="450" rx="24" fill="#f6f8fc" opacity="0.98"/>
+  <rect x="120" y="155" width="260" height="320" rx="14" fill="#ffffff" stroke="#d9deea"/>
+  <rect x="430" y="155" width="340" height="320" rx="14" fill="#ffffff" stroke="#d9deea"/>
+  <rect x="820" y="155" width="260" height="320" rx="14" fill="#ffffff" stroke="#d9deea"/>
+  <circle cx="405" cy="315" r="24" fill="url(#accent)"/>
+  <circle cx="795" cy="315" r="24" fill="url(#accent)"/>
+  <text x="120" y="72" fill="#e7efff" font-family="IBM Plex Sans, Arial" font-size="54" font-weight="700">Sezor Cipher Studio</text>
+  <text x="120" y="114" fill="#c8d6f3" font-family="IBM Plex Sans, Arial" font-size="28">Cryptii-style Caesar cipher workflow (UZ / RU / EN)</text>
+</svg>

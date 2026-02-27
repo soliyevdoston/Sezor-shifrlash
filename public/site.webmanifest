@@ -1,0 +1,16 @@
+{
+  "name": "Sezor Cipher Studio",
+  "short_name": "SezorCipher",
+  "description": "Multilingual Caesar cipher web app with horizontal pipeline workflow.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f5f8",
+  "theme_color": "#09abc9",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
